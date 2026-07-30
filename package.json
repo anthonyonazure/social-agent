@@ -5,6 +5,11 @@
   "description": "Self-running AI content agent for short-form social video",
   "type": "module",
   "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "test": "bun test",
+    "mutation": "stryker run",
+    "check": "bun run typecheck && bun run lint",
     "dev:db": "docker compose up -d postgres",
     "dev:stack": "docker compose up -d",
     "dev:stack:down": "docker compose down",
@@ -13,7 +18,6 @@
     "dev:dashboard": "pnpm --filter @social-agent/dashboard dev",
     "dev:all": "pnpm -r --parallel --filter '@social-agent/*' dev",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
     "seed": "pnpm --filter @social-agent/core seed",
     "demo": "pnpm --filter @social-agent/workers demo"
   },
@@ -22,7 +26,11 @@
   },
   "packageManager": "pnpm@10.30.3",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "eslint": "^10.8.0",
     "playwright": "^1.59.1",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.65.0"
   }
 }
