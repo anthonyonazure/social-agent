@@ -9,7 +9,7 @@
   "description": "Self-running AI content agent for short-form social video",
   "type": "module",
   "scripts": {
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "tsc --noEmit -p services/core && tsc --noEmit -p services/api && tsc --noEmit -p services/workers && tsc --noEmit -p dashboard",
     "lint": "eslint .",
     "test": "bun test",
     "mutation": "stryker run",
