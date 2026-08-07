@@ -30,7 +30,11 @@ jobs:
           out=$(bun test --coverage 2>&1); code=$?
           set -e
           echo "$out"
-          if echo "$out" | grep -q "0 test files matching"; then
+          # bun words this two ways: plain `bun test` says "0 test files
+          # matching", `bun test --coverage` says "No tests found!". Matching
+          # only the first spelling made this documented escape hatch dead code,
+          # so a repo with no tests failed on wording rather than on a defect.
+          if echo "$out" | grep -qE "0 test files matching|No tests found"; then
             echo "GATE tests = NOT_APPLICABLE (no test files in this repo)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
