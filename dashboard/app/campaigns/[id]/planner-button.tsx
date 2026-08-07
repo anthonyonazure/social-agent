@@ -3,6 +3,16 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+// The planner endpoint is not typed end-to-end, so treat its body as unknown
+// and pull the single field we render out of it with a real check.
+function readItemsCreated(body: unknown): number {
+  if (typeof body !== 'object' || body === null) return 0;
+  const result = (body as { result?: unknown }).result;
+  if (typeof result !== 'object' || result === null) return 0;
+  const created = (result as { itemsCreated?: unknown }).itemsCreated;
+  return typeof created === 'number' ? created : 0;
+}
+
 export function PlannerButton({ campaignId }: { campaignId: string }) {
   const router = useRouter();
   const [running, setRunning] = useState(false);
@@ -15,8 +25,8 @@ export function PlannerButton({ campaignId }: { campaignId: string }) {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'}/api/planner/run?campaignId=${campaignId}`, {
         method: 'POST',
       });
-      const data = await res.json();
-      setResult({ kind: 'ok', text: `+${data.result?.itemsCreated ?? 0}` });
+      const data: unknown = await res.json();
+      setResult({ kind: 'ok', text: `+${readItemsCreated(data)}` });
       router.refresh();
     } catch (err) {
       setResult({ kind: 'err', text: err instanceof Error ? err.message : 'error' });
@@ -43,7 +53,7 @@ export function PlannerButton({ campaignId }: { campaignId: string }) {
   }
 
   return (
-    <button onClick={plan} disabled={running} className={cls}>
+    <button onClick={() => void plan()} disabled={running} className={cls}>
       {label}
     </button>
   );

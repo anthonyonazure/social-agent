@@ -32,7 +32,7 @@ export function AutonomyToggle({ campaignId, current }: { campaignId: string; cu
         return (
           <button
             key={m}
-            onClick={() => set(m)}
+            onClick={() => void set(m)}
             disabled={pending !== null}
             className={`px-3 py-1.5 transition border-r border-paper-ink last:border-r-0 ${
               active

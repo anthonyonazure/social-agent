@@ -94,7 +94,7 @@ export function ApprovalCard({ row, idx }: { row: ApprovalRow; idx: number }) {
           </label>
           <div className="flex gap-2">
             <button
-              onClick={reject}
+              onClick={() => void reject()}
               disabled={reason.length < 2 || busy !== null}
               className="border border-signal-alert text-signal-alert px-4 py-1.5 text-sm hover:bg-signal-alert hover:text-paper transition disabled:opacity-50"
             >
@@ -111,7 +111,7 @@ export function ApprovalCard({ row, idx }: { row: ApprovalRow; idx: number }) {
       ) : (
         <div className="flex gap-2">
           <button
-            onClick={approve}
+            onClick={() => void approve()}
             disabled={busy !== null}
             className="border border-accent text-accent px-4 py-1.5 text-sm hover:bg-accent hover:text-paper transition disabled:opacity-50 font-bold"
           >

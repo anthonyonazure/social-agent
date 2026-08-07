@@ -14,16 +14,6 @@ const VIDEOS_DIR = resolve(ROOT, 'tmp/dashboard-tour');
 const OUT = resolve(ROOT, 'portfolio-media/dashboard-tour-1280x800.mp4');
 const BASE = process.env.DASHBOARD_URL ?? 'http://localhost:3100';
 
-const TOUR = [
-  { path: '/',                stay: 3500 },
-  { path: '/campaigns',       stay: 3000 },
-  { path: '/campaigns',       sub: '/[id-link]', stay: 0 }, // we click into detail below
-  { path: '/queue',           stay: 4000 },
-  { path: '/approvals',       stay: 5000 },
-  { path: '/runs',            stay: 3000 },
-  { path: '/',                stay: 2500 },
-];
-
 async function main() {
   await rm(VIDEOS_DIR, { recursive: true, force: true });
   await mkdir(VIDEOS_DIR, { recursive: true });

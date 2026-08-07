@@ -56,8 +56,8 @@ function run(cmd: string, args: string[]): Promise<{ stdout: string; stderr: str
     const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
-    p.stdout.on('data', (b) => (stdout += b.toString()));
-    p.stderr.on('data', (b) => (stderr += b.toString()));
+    p.stdout.on('data', (b: Buffer) => (stdout += b.toString()));
+    p.stderr.on('data', (b: Buffer) => (stderr += b.toString()));
     p.on('error', rej);
     p.on('close', (code) => {
       if (code === 0) res({ stdout, stderr });

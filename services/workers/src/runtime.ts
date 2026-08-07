@@ -76,7 +76,7 @@ export function createWorker(handler: WorkerHandler) {
             finishedAt: new Date(),
             durationMs: Date.now() - start,
             status: 'success',
-            payload: (payload ?? null) as object | null,
+            payload: payload ?? null,
           })
           .where(eq(workflowRuns.id, run!.id));
       } catch (err) {

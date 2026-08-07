@@ -49,7 +49,7 @@ const RejectSchema = z.object({
 
 approvalsRoute.post('/:id/approve', async (c) => {
   const id = c.req.param('id');
-  const body = await c.req.json().catch(() => ({}));
+  const body: unknown = await c.req.json().catch(() => ({}));
   const parsed = ApproveSchema.safeParse(body);
   const approvedBy = parsed.success ? parsed.data.approvedBy : 'dashboard-user';
 
@@ -70,7 +70,7 @@ approvalsRoute.post('/:id/approve', async (c) => {
 
 approvalsRoute.post('/:id/reject', async (c) => {
   const id = c.req.param('id');
-  const body = await c.req.json().catch(() => ({}));
+  const body: unknown = await c.req.json().catch(() => ({}));
   const parsed = RejectSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: 'invalid', issues: parsed.error.issues }, 400);
 

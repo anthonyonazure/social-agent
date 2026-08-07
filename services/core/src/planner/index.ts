@@ -6,7 +6,6 @@ import {
   industries,
   contentItems,
   topicPerformance,
-  type Campaign,
   type Industry,
   type ContentType,
   type Language,
@@ -28,17 +27,6 @@ interface PlannerResult {
 interface IndustryWithWeight extends Industry {
   weight: number;
 }
-
-const TYPE_QUOTA_FIELDS: Record<ContentType, keyof Campaign> = {
-  testimonial: 'weeklyTestimonials',
-  case_study: 'weeklyCaseStudies',
-  success_story: 'weeklyTestimonials', // bucketed with testimonials
-  explainer: 'weeklyExplainers',
-  educational: 'weeklyEducational',
-  transformation: 'weeklyCaseStudies',
-  founder_message: 'weeklyFounderMessages',
-  industry_insight: 'weeklyIndustryInsights',
-};
 
 const PLANNED_TYPES: ContentType[] = [
   'testimonial',
@@ -144,7 +132,7 @@ export async function planUpcomingWeek(campaignId: string): Promise<PlannerResul
     ...(ind as Industry),
     weight: Math.max(
       1,
-      Math.round((ind.weight as number) * (industryModifier.get(ind.id) ?? 1.0))
+      Math.round(ind.weight * (industryModifier.get(ind.id) ?? 1.0))
     ),
   }));
 

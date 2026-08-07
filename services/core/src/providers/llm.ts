@@ -92,7 +92,7 @@ export class MockLlm implements LlmProvider {
     const seedTopic = pick(seedTopics, seed);
 
     let attempt = 0;
-    let topic = '';
+    let topic: string;
     do {
       const template = pick(TOPIC_TEMPLATES[input.type] ?? TOPIC_TEMPLATES.explainer!, seed + attempt);
       topic = template
@@ -111,7 +111,7 @@ export class MockLlm implements LlmProvider {
     const script = [
       hook,
       '',
-      `Here\'s what most ${input.industryName.toLowerCase()} get wrong about ${seedTopic}:`,
+      `Here's what most ${input.industryName.toLowerCase()} get wrong about ${seedTopic}:`,
       `they treat it as a one-time fix instead of a system.`,
       ``,
       `In 90 days we rebuilt this around three moves: identify the leak, plug it with a process, then automate.`,
@@ -132,7 +132,6 @@ export class MockLlm implements LlmProvider {
 
   async generateCaptions(input: CaptionInput): Promise<CaptionOutput> {
     await delay(100);
-    const seed = djb2(input.script);
     const baseTags = ['smallbusiness', 'growth', 'marketing', 'entrepreneur'];
     const industryTag = input.industry.toLowerCase().replace(/[^a-z]/g, '');
     const tags = [industryTag, ...baseTags].slice(0, 6);

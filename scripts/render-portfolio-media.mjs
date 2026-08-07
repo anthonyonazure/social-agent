@@ -4,19 +4,10 @@
 
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 
-// Use the sharp install from .pnpm cache (we don't add it as a workspace dep
-// just for this offline tooling — find it dynamically).
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
-
-// Locate sharp via require resolution — it's a transitive dep of next/image
-const { createRequire } = await import('node:module');
-const require = createRequire(import.meta.url);
-const sharpPath = require.resolve('sharp', {
-  paths: [resolve(ROOT, 'node_modules/.pnpm/sharp@0.34.5/node_modules')],
-});
-const { default: sharp } = await import(sharpPath);
 
 const SHOTS = [
   { src: 'hero.svg',            out: 'hero-1920x1080.png',     w: 1920, h: 1080, density: 200 },

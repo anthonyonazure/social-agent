@@ -9,7 +9,6 @@ export const metricsRoute = new Hono();
 metricsRoute.get('/overview', async (c) => {
   const campaignId = c.req.query('campaignId');
   const filter = campaignId ? sql`WHERE campaign_id = ${campaignId}` : sql``;
-  const filterCi = campaignId ? sql`WHERE ci.campaign_id = ${campaignId}` : sql``;
 
   const stateCountsRaw = await db.execute(sql`
     SELECT state, count(*)::int AS count

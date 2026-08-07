@@ -7,7 +7,6 @@ import { db } from '../db.js';
 import {
   publications,
   publishingTargets,
-  contentItems,
   postMetrics,
   topicPerformance,
 } from '../schema.js';
@@ -175,7 +174,7 @@ export async function ingestDueMetrics(): Promise<IngestionResult> {
           reach: stats.reach,
           watchTimeSeconds: stats.watchTimeSeconds,
           engagementRate: er.toFixed(4),
-          raw: (stats.raw ?? {}) as object,
+          raw: stats.raw ?? {},
         });
         fetched++;
       } catch (err) {

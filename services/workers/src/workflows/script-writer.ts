@@ -134,7 +134,7 @@ export const scriptWriterWorker = createWorker({
             // Store as JSON text — pgvector column is in raw SQL, drizzle column is text
             topicEmbedding: JSON.stringify(embedding),
             scriptRejectionReason: null,
-            metadata: { ...((item.metadata as object) ?? {}), llmMode: llm.mode, dedupMaxSim: maxSim },
+            metadata: { ...(item.metadata ?? {}), llmMode: llm.mode, dedupMaxSim: maxSim },
           })
           .where(eq(contentItems.id, item.id));
 

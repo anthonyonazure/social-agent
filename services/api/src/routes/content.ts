@@ -87,7 +87,7 @@ const TransitionSchema = z.object({
 
 contentRoute.post('/:id/transition', async (c) => {
   const id = c.req.param('id');
-  const body = await c.req.json();
+  const body: unknown = await c.req.json();
   const parsed = TransitionSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: 'invalid', issues: parsed.error.issues }, 400);
 

@@ -16,7 +16,8 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
-    "**/*.js"
+    "**/*.js",
+    "**/*.mjs"
   ],
   "exclude": [
     "node_modules",

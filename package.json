@@ -2,6 +2,10 @@
   "name": "social-agent",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "services/*",
+    "dashboard"
+  ],
   "description": "Self-running AI content agent for short-form social video",
   "type": "module",
   "scripts": {
@@ -30,7 +34,26 @@
     "@stryker-mutator/core": "^9.6.1",
     "eslint": "^10.8.0",
     "playwright": "^1.59.1",
+    "sharp": "^0.35.0",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.65.0"
+  },
+  "overrides": {
+    "esbuild": ">=0.28.1",
+    "fast-uri": ">=3.1.5",
+    "form-data": ">=4.0.6",
+    "postcss": ">=8.5.23",
+    "qs": ">=6.15.2",
+    "sharp": ">=0.35.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "esbuild": ">=0.28.1",
+      "fast-uri": ">=3.1.5",
+      "form-data": ">=4.0.6",
+      "postcss": ">=8.5.23",
+      "qs": ">=6.15.2",
+      "sharp": ">=0.35.0"
+    }
   }
 }
