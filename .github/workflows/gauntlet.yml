@@ -11,35 +11,90 @@ on:
     - cron: "17 6 * * *"
   workflow_dispatch:
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A literal, not ${{ github.workflow }}. That expression is the workflow's
+  # display NAME, so any two workflow files that happen to share a name share a
+  # concurrency group and cancel each other — and a cancelled run is neither a
+  # pass nor a failure, so the dashboard recorded it as CANCELLED and the gates
+  # simply never reported. Naming the group after this file makes the collision
+  # structurally impossible instead of merely unlikely.
+  group: gauntlet-gates-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   node:
     name: Node / TypeScript (bun)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: latest }
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun run lint
-      - name: tests
+      - name: typecheck
         run: |
-          set +e
-          out=$(bun test --coverage 2>&1); code=$?
-          set -e
-          echo "$out"
-          # bun words this two ways: plain `bun test` says "0 test files
-          # matching", `bun test --coverage` says "No tests found!". Matching
-          # only the first spelling made this documented escape hatch dead code,
-          # so a repo with no tests failed on wording rather than on a defect.
-          if echo "$out" | grep -qE "0 test files matching|No tests found"; then
-            echo "GATE tests = NOT_APPLICABLE (no test files in this repo)" >> "$GITHUB_STEP_SUMMARY"
+          script=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts?.typecheck ?? ''" 2>/dev/null || echo "")
+          if [ -z "$script" ] || printf '%s' "$script" | grep -Eq '^[[:space:]]*(true|:|exit[[:space:]]+[0-9]+)[[:space:]]*$|^[[:space:]]*echo[^&|;]*([[:space:]]*(&&|;)[[:space:]]*(echo[^&|;]*|true|:|exit[[:space:]]+[0-9]+))*[[:space:]]*$'; then
+            echo "GATE typecheck = NOT_APPLICABLE (package.json defines no real 'typecheck' script)" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=GATE typecheck NOT_APPLICABLE::package.json defines no real 'typecheck' script — nothing was checked, so this tick verifies nothing"
             exit 0
           fi
+          bun run typecheck
+          echo "GATE typecheck = VERIFIED" >> "$GITHUB_STEP_SUMMARY"
+      - name: lint
+        run: |
+          script=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts?.lint ?? ''" 2>/dev/null || echo "")
+          if [ -z "$script" ] || printf '%s' "$script" | grep -Eq '^[[:space:]]*(true|:|exit[[:space:]]+[0-9]+)[[:space:]]*$|^[[:space:]]*echo[^&|;]*([[:space:]]*(&&|;)[[:space:]]*(echo[^&|;]*|true|:|exit[[:space:]]+[0-9]+))*[[:space:]]*$'; then
+            echo "GATE lint = NOT_APPLICABLE (package.json defines no real 'lint' script)" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=GATE lint NOT_APPLICABLE::package.json defines no real 'lint' script — nothing was checked, so this tick verifies nothing"
+            exit 0
+          fi
+          bun run lint
+          echo "GATE lint = VERIFIED" >> "$GITHUB_STEP_SUMMARY"
+      - name: tests
+        run: |
+          script=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts?.test ?? ''" 2>/dev/null || echo "")
+          if [ -z "$script" ] || printf '%s' "$script" | grep -Eq '^[[:space:]]*(true|:|exit[[:space:]]+[0-9]+)[[:space:]]*$|^[[:space:]]*echo[^&|;]*([[:space:]]*(&&|;)[[:space:]]*(echo[^&|;]*|true|:|exit[[:space:]]+[0-9]+))*[[:space:]]*$'; then
+            echo "GATE tests = NOT_APPLICABLE (package.json defines no real 'test' script)" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=GATE tests NOT_APPLICABLE::package.json defines no real 'test' script — nothing was checked, so this tick verifies nothing"
+            exit 0
+          fi
+          # The repo's OWN test command, not an assumption about it. Running
+          # `bun test` in a vitest repo finds nothing and reports "no tests".
+          if printf '%s' "$script" | grep -Eq '^[[:space:]]*bun[[:space:]]+test([[:space:]]|$)'; then
+            runner="$script --coverage"
+          else
+            runner="bun run test"
+          fi
+          echo "running: $runner"
+          set +e
+          out=$(eval "$runner" 2>&1); code=$?
+          set -e
+          echo "$out"
+          if printf '%s' "$out" | grep -Eq '0 test files matching|[Nn]o tests? found'; then
+            echo "GATE tests = NOT_APPLICABLE (the test runner found no tests in this repo)" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=GATE tests NOT_APPLICABLE::the test runner found no tests in this repo — nothing was checked, so this tick verifies nothing"
+            exit 0
+          fi
+          # An `[ ... ] && exit` one-liner here is a trap: under `set -e` the list
+          # evaluates false on the success path and can abort the step precisely
+          # when the tests passed. Explicit `if` has no such ambiguity.
           if [ "$code" -ne 0 ]; then exit "$code"; fi
-          echo "GATE tests = VERIFIED" >> "$GITHUB_STEP_SUMMARY"
+          echo "GATE tests = VERIFIED (ran: $script)" >> "$GITHUB_STEP_SUMMARY"
+          # Coverage: the floor is a project total, and it is compared here
+          # rather than by bun, whose scalar coverageThreshold is applied per
+          # file — one weak module failing a run whose output reads "N pass,
+          # 0 fail" is a coverage failure wearing the costume of a broken suite.
+          floor=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).gauntlet?.coverageFloorPercent ?? ''" 2>/dev/null || echo "")
+          total=$(printf '%s' "$out" | awk -F'|' '/^ *All files/ { f=$2+0; l=$3+0; print (f<l?f:l) }')
+          if [ -z "$floor" ]; then
+            echo "GATE coverage = NOT_APPLICABLE (no gauntlet.coverageFloorPercent in package.json)" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -z "$total" ]; then
+            echo "GATE coverage = NOT_APPLICABLE (this test command printed no coverage table)" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=GATE coverage NOT_APPLICABLE::this test command printed no coverage table — nothing was checked, so this tick verifies nothing"
+          elif awk -v a="$total" -v b="$floor" 'BEGIN { exit !(a < b) }'; then
+            echo "GATE coverage = FAILED (project total $total% is below the floor $floor%)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            echo "GATE coverage = VERIFIED (project total $total% >= floor $floor%)" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: dependency audit
         run: bun audit --audit-level=high
   secrets:
@@ -48,16 +103,45 @@ jobs:
     container:
       image: zricethezav/gitleaks:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       # gitleaks CLI is license-free; the gitleaks-action wrapper is NOT (it requires
       # a paid GITLEAKS_LICENSE on org accounts). Run the binary directly to avoid that.
-      - run: gitleaks detect --source . --redact --exit-code 1 --no-banner
+      - name: secret scan
+        run: |
+          # actions/checkout announces "Temporarily overriding HOME=..." before
+          # it registers its own safe.directory exception, i.e. it writes it to
+          # a throwaway global config and takes it away again. The image's
+          # /root/.gitconfig is bypassed too, because job containers run with
+          # HOME=/github/home. Without this line git cannot open the repo and
+          # gitleaks reports a clean scan of nothing.
+          git config --global --add safe.directory "$(pwd)"
+          set +e
+          out=$(gitleaks detect --source . --redact --exit-code 1 --no-banner 2>&1); code=$?
+          set -e
+          echo "$out"
+          # --exit-code covers "leaks were found". Nothing in it covers "the
+          # scan could not start", which gitleaks downgrades to a log line
+          # before exiting 0.
+          if printf '%s' "$out" | grep -Eq 'detected dubious ownership|\[git\] fatal:|stderr is not empty'; then
+            echo "GATE secrets = FAILED (gitleaks could not read this repository, so nothing was scanned)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if printf '%s' "$out" | grep -Eq '(^|[^0-9])0 commits scanned|scanned ~0 bytes'; then
+            echo "GATE secrets = FAILED (gitleaks read 0 commits / 0 bytes — an armed repo always has committed files)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$code" -ne 0 ]; then
+            echo "GATE secrets = FAILED (gitleaks found secrets in this repository)" >> "$GITHUB_STEP_SUMMARY"
+            exit "$code"
+          fi
+          scanned=$(printf '%s' "$out" | grep -Eo '[0-9]+ commits scanned' | tail -1)
+          echo "GATE secrets = VERIFIED (no leaks in $scanned)" >> "$GITHUB_STEP_SUMMARY"
   deps:
     name: dependency CVEs (osv-scanner)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: scan lockfiles for known vulnerabilities
         run: |
           curl -sSfL -o osv-scanner \
@@ -77,11 +161,56 @@ jobs:
             echo "GATE deps = VERIFIED" >> "$GITHUB_STEP_SUMMARY"
           fi
           exit $code
+  confusion:
+    name: dependency confusion
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v5
+        with: { go-version: 'stable' }
+      - run: go install github.com/visma-prodsec/confused@latest
+      - name: check every manifest for unpublished package names
+        run: |
+          SCOPES="${{ vars.GAUNTLET_PRIVATE_SCOPES }}"
+          fail=0
+          scan() {
+            [ -f "$2" ] || return 0
+            echo "== $2 ($1)"
+            if [ -n "$SCOPES" ]; then
+              confused -l "$1" -s "$SCOPES" "$2" || fail=1
+            else
+              confused -l "$1" "$2" || fail=1
+            fi
+          }
+          scan npm package.json
+          scan pip requirements.txt
+          scan mvn pom.xml
+          scan rubygems Gemfile.lock
+          if [ "$fail" -ne 0 ]; then
+            echo "GATE dependency-confusion = FAILED (a dependency name is not published on the public registry)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "GATE dependency-confusion = VERIFIED" >> "$GITHUB_STEP_SUMMARY"
+  sbom:
+    name: software bill of materials
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: anchore/sbom-action@v0
+        with:
+          format: cyclonedx-json
+          artifact-name: sbom.cyclonedx.json
+          output-file: sbom.cyclonedx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cyclonedx.json
+          retention-days: 365
   licenses:
     name: licence policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: inventory dependency licences
         run: |
           curl -sSfL -o osv-scanner \
@@ -115,9 +244,10 @@ jobs:
     container:
       image: semgrep/semgrep:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: advisory scan (all severities, never blocks)
         run: |
+          git config --global --add safe.directory "$(pwd)"
           semgrep scan --config=p/default --metrics=off --no-error \
             --text --output=advisory.txt . || true
           {
@@ -128,5 +258,22 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: blocking scan (high-confidence only)
         run: |
-          semgrep scan --config=p/default --metrics=off --severity=ERROR --error .
-          echo "GATE sast = VERIFIED (no ERROR-severity findings)" >> "$GITHUB_STEP_SUMMARY"
+          # Repeated deliberately: each step must stand on its own, so that
+          # deleting the step above can never silently disarm this one.
+          git config --global --add safe.directory "$(pwd)"
+          set +e
+          out=$(semgrep scan --config=p/default --metrics=off --severity=ERROR --error . 2>&1); code=$?
+          set -e
+          echo "$out"
+          targets=$(printf '%s' "$out" | awk '/Ran [0-9]+ rules? on [0-9]+ files?:/ { n = $5 } END { if (n != "") print n }')
+          if [ -z "$targets" ]; then
+            echo "GATE sast = FAILED (semgrep printed no scan summary, so it cannot be said to have run)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$targets" -eq 0 ]; then
+            echo "GATE sast = NOT_APPLICABLE (semgrep found no files it can analyse in this repo)" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=GATE sast NOT_APPLICABLE::semgrep found no files it can analyse in this repo — nothing was checked, so this tick verifies nothing"
+            exit 0
+          fi
+          if [ "$code" -ne 0 ]; then exit "$code"; fi
+          echo "GATE sast = VERIFIED (no ERROR-severity findings across $targets files)" >> "$GITHUB_STEP_SUMMARY"

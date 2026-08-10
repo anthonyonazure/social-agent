@@ -32,11 +32,11 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^9.6.1",
-    "eslint": "^10.8.0",
+    "eslint": "^10.8.1",
     "playwright": "^1.59.1",
     "sharp": "^0.35.0",
     "typescript": "^5.7.2",
-    "typescript-eslint": "^8.65.0"
+    "typescript-eslint": "^8.66.0"
   },
   "overrides": {
     "esbuild": ">=0.28.1",
