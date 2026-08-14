@@ -11,13 +11,13 @@
   },
   "dependencies": {
     "next": "^15.5.21",
-    "react": "^19.0.0",
+    "react": "^19.2.8",
     "react-dom": "^19.0.0",
     "simple-icons": "^13.21.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "@types/react": "^19.0.2",
+    "@types/react": "^19.2.18",
     "@types/react-dom": "^19.0.2",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.5.23",
