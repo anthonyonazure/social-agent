@@ -24,10 +24,13 @@ jobs:
     name: Node / TypeScript (bun)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with: { bun-version: latest }
-      - run: bun install --frozen-lockfile
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with: { node-version: '22' }
+      - run: pnpm install --frozen-lockfile
       - name: typecheck
         run: |
           script=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts?.typecheck ?? ''" 2>/dev/null || echo "")
@@ -58,6 +61,9 @@ jobs:
           fi
           # The repo's OWN test command, not an assumption about it. Running
           # `bun test` in a vitest repo finds nothing and reports "no tests".
+          # Shared with the stryker config this installer writes (testCommand),
+          # because the two answers differing is exactly what broke mutation
+          # testing on every vitest repo in the fleet.
           if printf '%s' "$script" | grep -Eq '^[[:space:]]*bun[[:space:]]+test([[:space:]]|$)'; then
             runner="$script --coverage"
           else
@@ -96,14 +102,14 @@ jobs:
             echo "GATE coverage = VERIFIED (project total $total% >= floor $floor%)" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: dependency audit
-        run: bun audit --audit-level=high
+        run: pnpm audit --audit-level=high
   secrets:
     name: secret scan (gitleaks)
     runs-on: ubuntu-latest
     container:
       image: zricethezav/gitleaks:latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with: { fetch-depth: 0 }
       # gitleaks CLI is license-free; the gitleaks-action wrapper is NOT (it requires
       # a paid GITLEAKS_LICENSE on org accounts). Run the binary directly to avoid that.
@@ -141,7 +147,7 @@ jobs:
     name: dependency CVEs (osv-scanner)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: scan lockfiles for known vulnerabilities
         run: |
           curl -sSfL -o osv-scanner \
@@ -165,43 +171,189 @@ jobs:
     name: dependency confusion
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with: { go-version: 'stable' }
       - run: go install github.com/visma-prodsec/confused@latest
       - name: check every manifest for unpublished package names
         run: |
           SCOPES="${{ vars.GAUNTLET_PRIVATE_SCOPES }}"
-          fail=0
-          scan() {
+          blocked=""; broken=""; total=0
+          manifest_names() {
+            python3 - "$1" <<'GAUNTLET_MANIFEST_PY'
+          import re
+          import sys
+
+          path = sys.argv[1]
+
+          try:
+              import tomllib
+          except ImportError as exc:  # pragma: no cover - only on python < 3.11
+              sys.stderr.write("gauntlet: no tomllib (%s); cannot read %s\n" % (exc, path))
+              raise SystemExit(3)
+
+          NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
+          DIRECT_REF = re.compile(r"^[A-Za-z0-9._-]+\s*@\s*\S+")
+
+
+          def dist_name(req):
+              """The distribution name out of a PEP 508 requirement string."""
+              if not isinstance(req, str):
+                  return None
+              req = req.strip()
+              if not req or req.startswith("#") or req.startswith("-"):
+                  return None
+              if "://" in req or req.startswith("git+") or DIRECT_REF.match(req):
+                  return None
+              m = NAME.match(req)
+              return m.group(1) if m else None
+
+
+          def from_pyproject(text):
+              data = tomllib.loads(text)
+              project = data.get("project") or {}
+              lists = [project.get("dependencies") or []]
+              lists.extend((project.get("optional-dependencies") or {}).values())
+              lists.extend((data.get("dependency-groups") or {}).values())
+              for group in lists:
+                  for req in group or []:
+                      name = dist_name(req)
+                      if name:
+                          yield name
+              poetry = (data.get("tool") or {}).get("poetry") or {}
+              tables = [poetry.get("dependencies") or {}]
+              for group in (poetry.get("group") or {}).values():
+                  tables.append(group.get("dependencies") or {})
+              for table in tables:
+                  for name, spec in table.items():
+                      if name.lower() == "python":
+                          continue
+                      if isinstance(spec, dict) and any(k in spec for k in ("path", "git", "url")):
+                          continue
+                      yield name
+
+
+          def from_requirements(text):
+              for raw in re.sub(r"\\\n", "", text).splitlines():
+                  line = raw.split(" #", 1)[0].split("\t#", 1)[0].strip()
+                  name = dist_name(line)
+                  if name:
+                      yield name
+
+
+          try:
+              with open(path, encoding="utf-8") as fh:
+                  text = fh.read()
+              reader = from_pyproject if path.endswith("pyproject.toml") else from_requirements
+              names = sorted(set(reader(text)))
+          except Exception as exc:
+              sys.stderr.write("gauntlet: could not read %s: %s\n" % (path, exc))
+              raise SystemExit(3)
+
+          for name in names:
+              print(name)
+          GAUNTLET_MANIFEST_PY
+          }
+          PYPI_SIMPLE="${PYPI_SIMPLE:-https://pypi.org/simple}"
+          pypi_check() {
+            unclaimed=""; unresolved=""; checked=0
+            while IFS= read -r name; do
+              [ -n "$name" ] || continue
+              skip=0
+              if [ -n "$SCOPES" ]; then
+                set -f
+                for pat in $(printf '%s' "$SCOPES" | tr ',' ' '); do
+                  case "$name" in $pat) skip=1 ;; esac
+                done
+                set +f
+              fi
+              [ "$skip" -eq 0 ] || { echo "  skip $name (declared private via GAUNTLET_PRIVATE_SCOPES)"; continue; }
+              norm=$(printf '%s' "$name" | tr 'A-Z' 'a-z' | sed -e 's/[-_.][-_.]*/-/g')
+              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 --retry 2 "$PYPI_SIMPLE/$norm/" || echo 000)
+              checked=$((checked+1))
+              echo "  $name -> $PYPI_SIMPLE/$norm/ : $code"
+              case "$code" in
+                200) ;;
+                404) unclaimed="$unclaimed $name" ;;
+                *) unresolved="$unresolved $name(HTTP $code)" ;;
+              esac
+            done
+          }
+          # npm, maven and rubygems: confused queries those registries through
+          # their real APIs and still works. -v so this can count what it read,
+          # because "all packages seem to be available" is what it prints over
+          # an empty manifest too.
+          scan_confused() {
             [ -f "$2" ] || return 0
             echo "== $2 ($1)"
+            set +e
             if [ -n "$SCOPES" ]; then
-              confused -l "$1" -s "$SCOPES" "$2" || fail=1
+              out=$(confused -v -l "$1" -s "$SCOPES" "$2" 2>&1); code=$?
             else
-              confused -l "$1" "$2" || fail=1
+              out=$(confused -v -l "$1" "$2" 2>&1); code=$?
+            fi
+            set -e
+            echo "$out"
+            n=$(printf '%s' "$out" | grep -cE '^Checking: https?://' || true)
+            total=$((total+n))
+            if [ "$code" -ne 0 ]; then
+              if printf '%s' "$out" | grep -Eq 'not available in public package repositories'; then
+                blocked="$blocked $2"
+              else
+                broken="$broken $2(confused exit $code)"
+              fi
             fi
           }
-          scan npm package.json
-          scan pip requirements.txt
-          scan mvn pom.xml
-          scan rubygems Gemfile.lock
-          if [ "$fail" -ne 0 ]; then
-            echo "GATE dependency-confusion = FAILED (a dependency name is not published on the public registry)" >> "$GITHUB_STEP_SUMMARY"
+          # The Python half, done here rather than by confused. A manifest that
+          # declares no names is not a manifest that was scanned, so it adds
+          # nothing to the total and cannot buy a VERIFIED on its own.
+          scan_python() {
+            [ -f "$1" ] || return 0
+            echo "== $1 (pip)"
+            nf=$(mktemp)
+            if ! manifest_names "$1" > "$nf"; then
+              broken="$broken $1(unreadable)"
+              return 0
+            fi
+            pypi_check < "$nf"
+            total=$((total+checked))
+            [ -z "$unclaimed" ] || blocked="$blocked $1:$unclaimed"
+            [ -z "$unresolved" ] || broken="$broken $1:$unresolved"
+          }
+          scan_confused npm package.json
+          scan_confused mvn pom.xml
+          scan_confused rubygems Gemfile.lock
+          for f in pyproject.toml requirements.txt requirements-dev.txt dev-requirements.txt requirements/dev.txt test-requirements.txt; do
+            scan_python "$f"
+          done
+          # Order matters. "I could not look this up" is not "I looked and it
+          # was fine", and it outranks a finding because a half-completed scan
+          # cannot be trusted about the half it did complete.
+          if [ -n "$broken" ]; then
+            echo "GATE dependency-confusion = FAILED (a registry lookup did not happen:$broken — those names were NOT checked)" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          echo "GATE dependency-confusion = VERIFIED" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$blocked" ]; then
+            echo "GATE dependency-confusion = FAILED (a dependency name is not published on the public registry:$blocked)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$total" -eq 0 ]; then
+            echo "GATE dependency-confusion = NOT_APPLICABLE (no manifest in this repo declares a package name)" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=GATE dependency-confusion NOT_APPLICABLE::no manifest in this repo declares a package name — nothing was checked, so this tick verifies nothing"
+            exit 0
+          fi
+          echo "GATE dependency-confusion = VERIFIED ($total package names checked against their public registries)" >> "$GITHUB_STEP_SUMMARY"
   sbom:
     name: software bill of materials
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: anchore/sbom-action@v0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           format: cyclonedx-json
           artifact-name: sbom.cyclonedx.json
           output-file: sbom.cyclonedx.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sbom
           path: sbom.cyclonedx.json
@@ -210,7 +362,7 @@ jobs:
     name: licence policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: inventory dependency licences
         run: |
           curl -sSfL -o osv-scanner \
@@ -244,7 +396,7 @@ jobs:
     container:
       image: semgrep/semgrep:latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: advisory scan (all severities, never blocks)
         run: |
           git config --global --add safe.directory "$(pwd)"
